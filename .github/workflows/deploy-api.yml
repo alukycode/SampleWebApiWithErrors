@@ -1,0 +1,36 @@
+name: Deploy API
+
+on:
+  push:
+    branches: [master]
+
+env:
+  API_PUBLISH_DIR: publish-api
+
+jobs:
+  build_and_deploy_api:
+    name: Build and Deploy API to Azure App Service
+    runs-on: ubuntu-latest
+
+    steps:ain
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish
+        run: dotnet publish ./LogsTriageSampleWebApi -c Release -o ${{ env.API_PUBLISH_DIR }}
+
+      - name: Zip artifact
+        run: |
+          cd ${{ env.API_PUBLISH_DIR }}
+          zip -r ../api.zip .
+
+      - name: Deploy via Kudu zipdeploy
+        run: |
+          curl -v --fail-with-body -X POST \
+            -u "${{ secrets.AZURE_API_DEPLOY_USER }}:${{ secrets.AZURE_API_DEPLOY_PASS }}" \
+            --data-binary @api.zip \
+            https://logstriagesamplewebapi.scm.azurewebsites.net/api/zipdeploy
