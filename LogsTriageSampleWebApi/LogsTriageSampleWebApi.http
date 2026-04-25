@@ -1,0 +1,67 @@
+# @LogsTriageSampleWebApi_HostAddress = http://localhost:5018
+@LogsTriageSampleWebApi_HostAddress = https://logstriagesamplewebapi.azurewebsites.net
+
+GET {{LogsTriageSampleWebApi_HostAddress}}/api/test
+Accept: application/json
+
+###
+
+POST {{LogsTriageSampleWebApi_HostAddress}}/api/data
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "Test Data"
+}
+
+###
+
+GET {{LogsTriageSampleWebApi_HostAddress}}/api/error
+Accept: application/json
+
+###
+
+GET {{LogsTriageSampleWebApi_HostAddress}}/api/issues
+Accept: application/json
+
+###
+
+POST {{LogsTriageSampleWebApi_HostAddress}}/api/issues/automapper-missing-map
+Accept: application/json
+
+###
+
+GET {{LogsTriageSampleWebApi_HostAddress}}/api/issues/missing-di-registration
+Accept: application/json
+
+###
+
+GET {{LogsTriageSampleWebApi_HostAddress}}/api/issues/missing-configuration
+Accept: application/json
+
+###
+
+GET {{LogsTriageSampleWebApi_HostAddress}}/api/issues/ef-migration-not-applied
+Accept: application/json
+
+###
+
+GET {{LogsTriageSampleWebApi_HostAddress}}/api/issues/nullable-unexpectedly-null
+Accept: application/json
+
+###
+
+POST {{LogsTriageSampleWebApi_HostAddress}}/api/issues/enum-parse-mismatch
+Content-Type: application/json
+Accept: application/json
+
+{
+  "mode": "DefinitelyNotARealMode"
+}
+
+###
+
+GET {{LogsTriageSampleWebApi_HostAddress}}/api/issues/incorrect-async-usage
+Accept: application/json
+
+###
