@@ -23,9 +23,12 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Verify deploy secrets present
+        env:
+          DEPLOY_USER: ${{ secrets.AZURE_API_DEPLOY_USER }}
+          DEPLOY_PASS: ${{ secrets.AZURE_API_DEPLOY_PASS }}
         run: |
-          test -n "${{ secrets.AZURE_API_DEPLOY_USER }}" || (echo "Missing AZURE_API_DEPLOY_USER" && exit 1)
-          test -n "${{ secrets.AZURE_API_DEPLOY_PASS }}" || (echo "Missing AZURE_API_DEPLOY_PASS" && exit 1)
+          test -n "$DEPLOY_USER" || (echo "Missing AZURE_API_DEPLOY_USER" && exit 1)
+          test -n "$DEPLOY_PASS" || (echo "Missing AZURE_API_DEPLOY_PASS" && exit 1)
 
       - name: Publish
         run: dotnet publish ./LogsTriageSampleWebApi -c Release -o ${{ env.API_PUBLISH_DIR }}
@@ -36,8 +39,11 @@ jobs:
           zip -r ../api.zip .
 
       - name: Deploy via Kudu zipdeploy
+        env:
+          DEPLOY_USER: ${{ secrets.AZURE_API_DEPLOY_USER }}
+          DEPLOY_PASS: ${{ secrets.AZURE_API_DEPLOY_PASS }}
         run: |
           curl -v --fail-with-body -X POST \
-            -u "${{ secrets.AZURE_API_DEPLOY_USER }}:${{ secrets.AZURE_API_DEPLOY_PASS }}" \
+            -u "$DEPLOY_USER:$DEPLOY_PASS" \
             --data-binary @api.zip \
             https://logstriagesamplewebapi.scm.azurewebsites.net/api/zipdeploy
