@@ -12,7 +12,7 @@ jobs:
     name: Build and Deploy API to Azure App Service
     runs-on: ubuntu-latest
 
-    steps:ain
+    steps:
       - uses: actions/checkout@v4
 
       - name: Setup .NET
