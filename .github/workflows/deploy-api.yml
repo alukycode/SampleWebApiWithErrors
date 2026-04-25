@@ -9,6 +9,7 @@ env:
 
 jobs:
   build_and_deploy_api:
+    environment: production
     name: Build and Deploy API to Azure App Service
     runs-on: ubuntu-latest
 
