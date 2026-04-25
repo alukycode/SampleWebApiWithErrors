@@ -22,6 +22,14 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Debug secrets
+        env:
+          USER_SECRET: ${{ secrets.AZURE_API_DEPLOY_USER }}
+          PASS_SECRET: ${{ secrets.AZURE_API_DEPLOY_PASS }}
+        run: |
+          echo "USER length: ${#USER_SECRET}"
+          echo "PASS length: ${#PASS_SECRET}"
+
       - name: Verify deploy secrets present
         env:
           DEPLOY_USER: ${{ secrets.AZURE_API_DEPLOY_USER }}
