@@ -22,6 +22,30 @@ builder.Services.AddIssueScenarioHandlers();
 
 var app = builder.Build();
 
+app.UseExceptionHandler(exceptionHandlerApp =>
+{
+    exceptionHandlerApp.Run(async context =>
+    {
+        var exception = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
+
+        if (exception is InputValidationException inputValidationEx)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(
+                new ErrorResponse(
+                    "Validation failed",
+                    inputValidationEx.Errors
+                )
+            );
+        }
+        else
+        {
+            throw exception ?? new InvalidOperationException("Unknown exception");
+        }
+    });
+});
+
 app.UseSwagger();
 app.UseSwaggerUI();
 
