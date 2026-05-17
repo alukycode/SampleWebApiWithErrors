@@ -51,3 +51,8 @@ public sealed record ScenarioInfo(
     string Failure,
     string Example
 );
+
+public sealed record ErrorResponse(
+    string Error,
+    IReadOnlyCollection<string> Details
+);
