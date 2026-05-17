@@ -26,6 +26,49 @@ Accept: application/json
 
 ###
 
+GET {{LogsTriageSampleWebApi_HostAddress}}/api/orders/scenarios
+Accept: application/json
+
+###
+
+POST {{LogsTriageSampleWebApi_HostAddress}}/api/orders
+Content-Type: application/json
+Accept: application/json
+
+{
+  "customerId": "cust-ok",
+  "sku": "WIDGET-A",
+  "quantity": 1,
+  "paymentMethod": "credit-card",
+  "shipToRegion": "west"
+}
+
+###
+
+POST {{LogsTriageSampleWebApi_HostAddress}}/api/orders
+Content-Type: application/json
+Accept: application/json
+
+{
+  "customerId": "cust-ok",
+  "sku": "WIDGET-A",
+  "quantity": 1,
+  "paymentMethod": "flaky-card"
+}
+
+###
+
+POST {{LogsTriageSampleWebApi_HostAddress}}/api/orders/ord-shipped/transitions
+Content-Type: application/json
+Accept: application/json
+
+{
+  "targetStatus": "Cancelled",
+  "reason": "customer requested cancellation"
+}
+
+###
+
 POST {{LogsTriageSampleWebApi_HostAddress}}/api/issues/automapper-missing-map
 Accept: application/json
 
