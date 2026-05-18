@@ -90,6 +90,10 @@ public sealed class OrderApplicationService(
         {
             throw new OrderProcessingException(description, ex);
         }
+        catch (TimeoutException ex)
+        {
+            throw new OrderProcessingException(description, ex);
+        }
         catch (RetryExhaustedException ex)
         {
             throw new OrderProcessingException(description, ex);
