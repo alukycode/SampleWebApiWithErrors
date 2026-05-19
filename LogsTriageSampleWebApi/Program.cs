@@ -22,6 +22,8 @@ builder.Services.AddIssueScenarioHandlers();
 
 var app = builder.Build();
 
+app.UseMiddleware<ExceptionHandlingMiddleware>();
+
 app.UseSwagger();
 app.UseSwaggerUI();
 
