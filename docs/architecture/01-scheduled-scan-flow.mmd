@@ -1,0 +1,176 @@
+---
+title: "Flow A — Scheduled Scan: from Production Telemetry to a Human-Reviewable Proposal"
+config:
+  theme: base
+  themeVariables:
+    fontSize: "16px"
+    primaryColor: "#ffffff"
+    primaryTextColor: "#000000"
+    primaryBorderColor: "#444"
+    lineColor: "#333"
+    clusterBkg: "#fafafa"
+  flowchart:
+    htmlLabels: true
+    nodeSpacing: 30
+    rankSpacing: 40
+    curve: linear
+    padding: 10
+---
+flowchart TB
+
+%% =========================================================================
+%% LANE 1 — Production Telemetry
+%% =========================================================================
+subgraph LANE1["🌐 Production Telemetry"]
+    direction LR
+    WEBAPI["<b>Web API</b><br/>(sample / production)"]
+    APPINS[("<b>Application Insights</b><br/>exception table")]
+    LOGAN[("<b>Log Analytics</b><br/>failed requests ≥ 500")]
+    WEBAPI -- "exceptions" --> APPINS
+    WEBAPI -- "request logs" --> LOGAN
+end
+
+%% =========================================================================
+%% LANE 2 — Deployment Runtime
+%% =========================================================================
+subgraph LANE2["⚙️ Deployment Runtime · Azure Container Apps Jobs"]
+    direction LR
+    SCANJOB["<b>triage-scan-job</b><br/>schedule: every 5 min · cmd: <code>scan</code><br/>image: <code>python -m triage_worker.main</code>"]
+end
+
+%% =========================================================================
+%% LANE 3 — Worker · LangGraph TriageAgentGraph (linear main flow)
+%% =========================================================================
+subgraph LANE3["🐍 Python Triage Worker · TriageAgentRuntime · LangGraph <b>TriageAgentGraph</b>"]
+    direction TB
+    N1["<b>1.</b> acquire_scan_lock"]
+    N2["<b>2.</b> logs_reader<br/><i>(CriticalErrorsService)</i>"]
+    N3["<b>3.</b> persist_signals<br/><i>fingerprint dedupe</i>"]
+    N4["<b>4.</b> code_search<br/><i>read-only enrichment</i>"]
+    N5["<b>5.</b> log_analyzer<br/><i>LLM or fallback</i>"]
+    N6["<b>6.</b> similarity_tickets<br/><i>related work items</i>"]
+    N7["<b>7.</b> create_proposal"]
+    N8(["<b>8.</b> wait_for_decision<br/>⏸ checkpoint &amp; pause"])
+    N1 ==> N2 ==> N3 ==> N4 ==> N5 ==> N6 ==> N7 ==> N8
+end
+
+%% =========================================================================
+%% LANE 4 — Side tools (MCP) + LLM boundary, side by side
+%% =========================================================================
+subgraph LANE4[" "]
+    direction LR
+
+    subgraph TOOLS["🔌 MCP Integrations · read-only enrichment"]
+        direction TB
+        AZMCP["<b>AzureMcpAdapter</b><br/><code>npx @azure/mcp</code>"]
+        GHTOOL["<b>github_code_search</b><br/>LangChain tool · GitHub REST"]
+        FSTOOL["Local filesystem<br/>code search"]
+        ADOMCP["<b>Azure DevOps MCP</b><br/><code>npx @azure-devops/mcp</code><br/>search_workitem · WIQL"]
+        DMCP["<b>Domain MCP Server</b><br/>stdio · list/get/create/<br/>patch/delete _proposal"]
+    end
+
+    subgraph LLMBOX["🧠 LLM Analysis Boundary · read-only drafting"]
+        direction TB
+        LANG["LangChain client"]
+        PROV{{"<b>Google · OpenAI · Anthropic</b><br/>configured provider"}}
+        FALL["Deterministic fallback<br/><i>(when no LLM configured)</i>"]
+        EMB["Google Embeddings +<br/>InMemoryVectorStore"]
+        RESULT["<b>FingerprintAnalysisResult</b><br/>severity · confidence ·<br/>root cause · suggested fix · affected files"]
+        LANG -. calls .-> PROV
+        LANG -. calls .-> EMB
+        PROV -- "structured output" --> RESULT
+        FALL -- "basic proposal" --> RESULT
+
+        LLMNOTE["⚠️ LLM <u>cannot</u> create tickets,<br/>approve proposals, or modify GitHub"]
+        style LLMNOTE fill:#fff0f6,stroke:#c2255c,stroke-width:2px,color:#000
+    end
+end
+
+%% =========================================================================
+%% LANE 5 — Persistence + Frontend, side by side
+%% =========================================================================
+subgraph LANE5[" "]
+    direction LR
+
+    subgraph PERSIST["💾 Persistence &amp; Secrets"]
+        direction TB
+        PG[("<b>PostgreSQL</b><br/>agent_locks · triage_runs<br/>fingerprints · triage_signals<br/>proposal_requests<br/>agent_audit_events<br/>worker_runtime_settings")]
+        CKPT[("LangGraph checkpointer<br/>Postgres <i>or</i> in-memory")]
+        KV[("<b>Azure Key Vault</b><br/>llm-api-key<br/>claude-routine-token")]
+    end
+
+    subgraph FRONTEND["👀 Human Review Frontend · LogsTriageFrontEnd"]
+        direction TB
+        DOMSVC["ASP.NET Core host<br/>POST /api/Proposals"]
+        MONGO[("<b>MongoDB</b><br/>proposal documents")]
+        SIGNALR(["SignalR hub<br/>/hubs/proposals"])
+        UI["React / Vite UI<br/><i>reviewer sees proposal</i>"]
+        DOMSVC ==> MONGO ==> SIGNALR ==> UI
+    end
+end
+
+%% =========================================================================
+%% HUMAN APPROVAL BOUNDARY
+%% =========================================================================
+HUMAN{{"🛑 HUMAN APPROVAL BOUNDARY<br/>No external side effects past this point without a reviewer decision"}}
+UI ==> HUMAN
+style HUMAN fill:#ffec99,stroke:#e8590c,stroke-width:5px,color:#000,stroke-dasharray: 10 6
+
+%% =========================================================================
+%% Vertical glue between lanes
+%% =========================================================================
+APPINS -. "queried via" .-> AZMCP
+LOGAN  -. "queried via" .-> AZMCP
+SCANJOB ==> N1
+
+%% Tool/data linkages — kept short
+N2 -. uses tool .-> AZMCP
+AZMCP == "CriticalErrorRecord" ==> N2
+N3 == writes ==> PG
+N4 -. uses tool .-> GHTOOL
+N4 -. uses tool .-> FSTOOL
+N5 -. uses .-> LANG
+RESULT == draft ==> N5
+N6 -. uses tool .-> ADOMCP
+N6 -. uses .-> EMB
+N7 -. uses tool .-> DMCP
+DMCP == "HTTP POST<br/>/api/Proposals" ==> DOMSVC
+N7 == external_proposal_id ==> PG
+N8 == "pause &amp;<br/>checkpoint" ==> CKPT
+CKPT --- PG
+KV -. "secrets at<br/>startup" .-> LANG
+
+%% =========================================================================
+%% Legend
+%% =========================================================================
+subgraph LEGEND["📖 Legend"]
+    direction LR
+    L1[Component]
+    L2[(Data store)]
+    L3([Wait / checkpoint])
+    L4{{Boundary}}
+    L1 == "solid: data / control flow" ==> L2
+    L1 -. "dashed: uses tool / API" .-> L3
+end
+
+%% =========================================================================
+%% Styling
+%% =========================================================================
+classDef tele fill:#d0ebff,stroke:#1971c2,color:#000,stroke-width:2px
+classDef deploy fill:#ffe8cc,stroke:#d9480f,color:#000,stroke-width:2px
+classDef worker fill:#c3fae8,stroke:#0ca678,color:#000,stroke-width:2px
+classDef mcp fill:#e5dbff,stroke:#5f3dc4,color:#000,stroke-width:2px
+classDef llm fill:#ffdeeb,stroke:#a61e4d,color:#000,stroke-width:2px
+classDef persist fill:#dee2e6,stroke:#495057,color:#000,stroke-width:2px
+classDef fe fill:#b2f2bb,stroke:#2f9e44,color:#000,stroke-width:2px
+
+class WEBAPI,APPINS,LOGAN tele
+class SCANJOB deploy
+class N1,N2,N3,N4,N5,N6,N7,N8 worker
+class AZMCP,GHTOOL,FSTOOL,ADOMCP,DMCP mcp
+class LANG,PROV,FALL,EMB,RESULT llm
+class PG,CKPT,KV persist
+class DOMSVC,MONGO,SIGNALR,UI fe
+
+style LANE4 fill:transparent,stroke-width:0px
+style LANE5 fill:transparent,stroke-width:0px
