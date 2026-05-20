@@ -1,0 +1,210 @@
+---
+title: "Flows B & C — Human Decision and Ticket-to-PR"
+config:
+  theme: base
+  themeVariables:
+    fontSize: "16px"
+    primaryColor: "#ffffff"
+    primaryTextColor: "#000000"
+    primaryBorderColor: "#444"
+    lineColor: "#333"
+    clusterBkg: "#fafafa"
+  flowchart:
+    htmlLabels: true
+    nodeSpacing: 30
+    rankSpacing: 40
+    curve: linear
+    padding: 10
+---
+flowchart TB
+
+%% =========================================================================
+%% LANE 1 — Human Review Frontend (ABOVE the approval boundary)
+%% =========================================================================
+subgraph FE["👀 Human Review Frontend · LogsTriageFrontEnd (ASP.NET Core + React/Vite)"]
+    direction LR
+    REV(["👤 <b>Reviewer</b>"])
+    UI["<b>Proposal UI</b><br/>Accept · Decline · Edit ·<br/>Accept with Create PR"]
+    FEAPI["Frontend API<br/>/api/Proposals · /hubs/proposals"]
+    MONGO[("<b>MongoDB</b><br/>proposal documents")]
+    REV ==> UI
+    UI <==> FEAPI
+    FEAPI --- MONGO
+end
+
+%% =========================================================================
+%% HUMAN APPROVAL BOUNDARY
+%% =========================================================================
+HUMAN{{"🛑 HUMAN APPROVAL BOUNDARY — only a reviewer decision crosses this line"}}
+FEAPI ==> HUMAN
+style HUMAN fill:#ffec99,stroke:#e8590c,stroke-width:5px,color:#000,stroke-dasharray: 10 6
+
+%% =========================================================================
+%% LANE 2 — Messaging / Resume Flow
+%% =========================================================================
+subgraph MSG["✉️ Messaging / Resume Flow"]
+    direction TB
+    subgraph MSGS[" "]
+        direction LR
+        MSG_ACC["📨 <b>Accepted</b><br/>{ proposalId,<br/>decision: 'Accepted',<br/>decidedAt }"]
+        MSG_DEC["📨 <b>Declined</b><br/>{ proposalId,<br/>decision: 'Declined',<br/>decidedAt }"]
+        MSG_PR["📨 <b>PR_Requested</b><br/>{ type: 'PR_Requested',<br/>proposalId, requestedAt }"]
+    end
+    SB[("<b>Azure Service Bus</b> queue<br/><b>triage-proposal-decisions</b>")]
+    DLQ[("Dead-letter queue<br/><i>non-retryable failures</i>")]
+    MSG_ACC ==> SB
+    MSG_DEC ==> SB
+    MSG_PR  ==> SB
+    style MSGS fill:transparent,stroke-width:0px
+end
+
+HUMAN == "Accept" ==> MSG_ACC
+HUMAN == "Decline" ==> MSG_DEC
+HUMAN == "Accept with<br/>Create PR" ==> MSG_PR
+
+%% =========================================================================
+%% LANE 3 — Resume job + Decision routing
+%% =========================================================================
+subgraph DEPLOY["⚙️ Deployment Runtime · Azure Container Apps Jobs"]
+    direction LR
+    RESUME["<b>triage-resume-job</b><br/>event-driven by Service Bus<br/>cmd: <code>resume-worker</code>"]
+    DW["<b>DecisionWorker</b><br/>message_id idempotency<br/>transient → abandon · invalid → DLQ"]
+    RT["<b>TriageAgentRuntime</b><br/>.resume(...) for Accepted/Declined<br/>.request_pr(...) for PR_Requested"]
+    RESUME ==> DW ==> RT
+end
+
+SB ==> RESUME
+DW -. "transient: abandon" .-> SB
+DW == "non-retryable" ==> DLQ
+
+%% =========================================================================
+%% LANE 4 — Resumed LangGraph (Flow B)
+%% =========================================================================
+subgraph GRAPH["🐍 Python Triage Worker · Resumed LangGraph nodes — Flow B (Accept / Decline)"]
+    direction LR
+    G1["<b>1.</b> record_decision<br/><i>idempotent</i>"]
+    G2{"<b>2.</b> handle_decision<br/>route by type"}
+    G3a["<b>3a.</b> create_azdo_ticket<br/><i>new work item</i>"]
+    G3b["<b>3b.</b> attach_existing_ticket<br/><i>link existing</i>"]
+    G4["<b>4.</b> finalize_run<br/><i>audit + close</i>"]
+    G1 ==> G2
+    G2 == "Accepted (new)" ==> G3a
+    G2 == "Add to existing" ==> G3b
+    G2 == "Declined /<br/>needs-more-info" ==> G4
+    G3a ==> G4
+    G3b ==> G4
+end
+
+RT == "Accepted / Declined<br/>→ resume(...)" ==> G1
+
+%% =========================================================================
+%% LANE 5 — PR Request sub-flow (Flow C)
+%% =========================================================================
+subgraph PRFLOW["🔁 PR Request Sub-flow — Flow C (Accept with Create PR) · inside resume job"]
+    direction LR
+    P1["<b>1.</b> create or reuse<br/>Azure DevOps work item"]
+    P2["<b>2.</b> fetch work item<br/>back from ADO"]
+    P3["<b>3.</b> build Azure DevOps<br/>Ticket Context prompt<br/><i>requires AB#&lt;id&gt;</i>"]
+    P4["<b>4.</b> record pr_routine_runs<br/><i>message_id idempotent</i>"]
+    P5["<b>5.</b> fire Claude Routine API"]
+    P6["<b>6.</b> record Claude<br/>session ID + URL"]
+    P1 ==> P2 ==> P3 ==> P4 ==> P5 ==> P6
+end
+
+RT == "PR_Requested<br/>→ request_pr(...)" ==> P1
+
+%% =========================================================================
+%% LANE 6 — Side effects + Claude Routine, side by side
+%% =========================================================================
+subgraph LANE6[" "]
+    direction LR
+
+    subgraph SIDE["✅ Approved Side Effects · Azure DevOps"]
+        direction TB
+        ADOMCP["<b>Azure DevOps MCP</b><br/><code>npx @azure-devops/mcp</code>"]
+        ADO[("<b>Azure DevOps</b><br/>Boards / Work Items")]
+        WI["Work Item<br/><b>AB#&lt;id&gt;</b>"]
+        ADOMCP == "create / link" ==> ADO
+        ADO --- WI
+    end
+
+    subgraph CLAUDE["🤖 Claude Code Routine · owns GitHub code changes"]
+        direction TB
+        CR["<b>Claude Code Routine API</b>"]
+        GH[("<b>GitHub repository</b><br/>connected to Claude Routine")]
+        BRANCH["Branch + <b>Draft PR</b><br/>description contains <b>AB#&lt;id&gt;</b>"]
+        SESSION["Claude session<br/>ID + URL"]
+        CR == "creates branch &amp;<br/>draft PR" ==> GH
+        GH == "produces" ==> BRANCH
+        CR == "returns" ==> SESSION
+
+        CRNOTE["⚠️ Triage worker does NOT create<br/>GitHub branches, commits, or PRs.<br/>Claude Routine owns this side."]
+        style CRNOTE fill:#fff0f6,stroke:#c2255c,stroke-width:2px,color:#000
+    end
+end
+
+%% Tool / data linkages
+G3a -. uses tool .-> ADOMCP
+G3b -. uses tool .-> ADOMCP
+P1  -. uses tool .-> ADOMCP
+P2  -. uses tool .-> ADOMCP
+WI  == "ticket context" ==> P2
+P5  -. fires .-> CR
+SESSION == "URL stored" ==> P6
+BRANCH -. "<b>AB#&lt;id&gt;</b> in PR description<br/>Azure Boards links PR ↔ work item" .-> ADO
+
+%% =========================================================================
+%% LANE 7 — Persistence & Secrets
+%% =========================================================================
+subgraph PERSIST["💾 Persistence &amp; Secrets"]
+    direction LR
+    PG[("<b>PostgreSQL</b><br/>proposal_decisions · pr_routine_runs<br/>agent_audit_events · fingerprints<br/>worker_runtime_settings")]
+    KV[("<b>Azure Key Vault</b><br/>claude-routine-token<br/>llm-api-key")]
+end
+
+G1  == "idempotent write" ==> PG
+G3a == "store work_item_id" ==> PG
+G3b == "store work_item_id" ==> PG
+G4  == "audit events" ==> PG
+P4  == "pr_routine_runs" ==> PG
+P6  == "session URL" ==> PG
+KV -. "claude-routine-token" .-> P5
+
+%% =========================================================================
+%% Legend
+%% =========================================================================
+subgraph LEGEND["📖 Legend"]
+    direction LR
+    L1[Component]
+    L2[(Data store)]
+    L3([Actor])
+    L4{{Boundary}}
+    L5{Decision}
+    L1 == "solid: data / control flow" ==> L2
+    L1 -. "dashed: uses tool / API" .-> L3
+end
+
+%% =========================================================================
+%% Styling
+%% =========================================================================
+classDef fe fill:#b2f2bb,stroke:#2f9e44,color:#000,stroke-width:2px
+classDef msg fill:#ffec99,stroke:#f08c00,color:#000,stroke-width:2px
+classDef deploy fill:#ffe8cc,stroke:#d9480f,color:#000,stroke-width:2px
+classDef worker fill:#c3fae8,stroke:#0ca678,color:#000,stroke-width:2px
+classDef mcp fill:#e5dbff,stroke:#5f3dc4,color:#000,stroke-width:2px
+classDef persist fill:#dee2e6,stroke:#495057,color:#000,stroke-width:2px
+classDef side fill:#d0ebff,stroke:#1971c2,color:#000,stroke-width:2px
+classDef claude fill:#ffdeeb,stroke:#a61e4d,color:#000,stroke-width:2px
+classDef prflow fill:#f8f9fa,stroke:#212529,color:#000,stroke-width:2px
+
+class REV,UI,FEAPI,MONGO fe
+class SB,MSG_ACC,MSG_DEC,MSG_PR,DLQ msg
+class RESUME,DW,RT deploy
+class G1,G2,G3a,G3b,G4 worker
+class ADOMCP mcp
+class PG,KV persist
+class ADO,WI side
+class CR,GH,BRANCH,SESSION claude
+class P1,P2,P3,P4,P5,P6 prflow
+
+style LANE6 fill:transparent,stroke-width:0px
